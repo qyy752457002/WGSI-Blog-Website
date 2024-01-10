@@ -9,10 +9,11 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.orm import relationship
 from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm
-import os
-# Optional: add contact me email functionality (Day 60)
-# import smtplib
 
+import os
+
+# Optional: add contact me email functionality (Day 60)
+import smtplib
 
 '''
 Make sure the required packages are installed: 
@@ -28,7 +29,9 @@ This will install the packages from the requirements.txt for this project.
 '''
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('FLASK_KEY')
+
+# os.getenv('FLASK_KEY')
+app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
 ckeditor = CKEditor(app)
 Bootstrap5(app)
 
@@ -36,11 +39,9 @@ Bootstrap5(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-
 @login_manager.user_loader
 def load_user(user_id):
     return db.get_or_404(User, user_id)
-
 
 # For adding profile images to the comment section
 gravatar = Gravatar(app,
@@ -52,8 +53,11 @@ gravatar = Gravatar(app,
                     use_ssl=False,
                     base_url=None)
 
+MAIL_ADDRESS = os.environ.get("EMAIL_KEY")
+MAIL_APP_PW = os.environ.get("PASSWORD_KEY")
+
 # CONNECT TO DB
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DB_URI", "sqlite:///posts.db")
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///data.db")
 db = SQLAlchemy()
 db.init_app(app)
 
@@ -101,11 +105,6 @@ class Comment(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey("blog_posts.id"))
     parent_post = relationship("BlogPost", back_populates="comments")
 
-
-with app.app_context():
-    db.create_all()
-
-
 # Create an admin-only decorator
 def admin_only(f):
     @wraps(f)
@@ -118,6 +117,18 @@ def admin_only(f):
 
     return decorated_function
 
+# 建立 only_commenter 装饰器
+def only_commenter(function):
+    @wraps(function)
+    def check(*args, **kwargs):
+        user = db.session.execute(db.select(Comment).where(Comment.author_id == current_user.id)).scalar()
+        if not current_user.is_authenticated or current_user.id != user.author_id:
+            return abort(403)
+        return function(*args, **kwargs)
+    return check
+
+with app.app_context():
+    db.create_all()
 
 # Register new users into the User database
 @app.route('/register', methods=["GET", "POST"])
@@ -260,39 +271,41 @@ def delete_post(post_id):
     db.session.commit()
     return redirect(url_for('get_all_posts'))
 
+@app.route("/delete/comment/<int:comment_id>/<int:post_id>")
+@only_commenter
+def delete_comment(post_id, comment_id):
+    post_to_delete = db.get_or_404(Comment, comment_id)
+    db.session.delete(post_to_delete)
+    db.session.commit()
+    return redirect(url_for('show_post', post_id=post_id))
 
 @app.route("/about")
 def about():
     return render_template("about.html", current_user=current_user)
 
-
-@app.route("/contact", methods=["GET", "POST"])
-def contact():
-    return render_template("contact.html", current_user=current_user)
+# @app.route("/contact", methods=["GET", "POST"])
+# def contact():
+#     return render_template("contact.html", current_user=current_user)
 
 # Optional: You can inclue the email sending code from Day 60:
 # DON'T put your email and password here directly! The code will be visible when you upload to Github.
 # Use environment variables instead (Day 35)
 
-# MAIL_ADDRESS = os.environ.get("EMAIL_KEY")
-# MAIL_APP_PW = os.environ.get("PASSWORD_KEY")
+@app.route("/contact", methods=["GET", "POST"])
+def contact():
 
-# @app.route("/contact", methods=["GET", "POST"])
-# def contact():
-#     if request.method == "POST":
-#         data = request.form
-#         send_email(data["name"], data["email"], data["phone"], data["message"])
-#         return render_template("contact.html", msg_sent=True)
-#     return render_template("contact.html", msg_sent=False)
-#
-#
-# def send_email(name, email, phone, message):
-#     email_message = f"Subject:New Message\n\nName: {name}\nEmail: {email}\nPhone: {phone}\nMessage:{message}"
-#     with smtplib.SMTP("smtp.gmail.com") as connection:
-#         connection.starttls()
-#         connection.login(MAIL_ADDRESS, MAIL_APP_PW)
-#         connection.sendmail(MAIL_ADDRESS, MAIL_APP_PW, email_message)
+    def send_email(name, email, phone, message):
+        email_message = f"Subject:New Message\n\nName: {name}\nEmail: {email}\nPhone: {phone}\nMessage:{message}"
+        with smtplib.SMTP("smtp.qq.com") as connection:
+            connection.starttls()
+            connection.login(MAIL_ADDRESS, MAIL_APP_PW)
+            connection.sendmail(MAIL_ADDRESS, email, email_message)
 
+    if request.method == "POST":
+        data = request.form
+        send_email(data["name"], data["email"], data["phone"], data["message"])
+        return render_template("contact.html", msg_sent=True, current_user=current_user)
+    return render_template("contact.html", msg_sent=False, current_user=current_user)
 
 if __name__ == "__main__":
     app.run(debug=False, port=5001)
