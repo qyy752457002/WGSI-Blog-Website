@@ -1,32 +1,49 @@
 {% from "bootstrap5/form.html" import render_form %} {% block content %} {%
-include "header.html" %}
-
-<!-- Page Header -->
-<header
-  class="masthead"
-  style="background-image: url('../static/assets/img/register-bg.jpg')"
->
-  <div class="container position-relative px-4 px-lg-5">
-    <div class="row gx-4 gx-lg-5 justify-content-center">
-      <div class="col-md-10 col-lg-8 col-xl-7">
-        <div class="page-heading">
-          <h1>Register</h1>
-          <span class="subheading">Start Contributing to the Blog!</span>
+  include "header.html" %}
+  
+  <!-- Page Header -->
+  <header
+    class="masthead"
+    style="background-image: url('../static/assets/img/register-bg.jpg')"
+  >
+    <div class="container position-relative px-4 px-lg-5">
+      <div class="row gx-4 gx-lg-5 justify-content-center">
+        <div class="col-md-10 col-lg-8 col-xl-7">
+          <div class="page-heading">
+            <h1>Register</h1>
+            <span class="subheading">Start Contributing to the Blog!</span>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-</header>
-
-<main class="mb-4">
-  <div class="container">
-    <div class="row">
-      <div class="col-lg-8 col-md-10 mx-auto">
-      <!--Rendering the registration form here-->
-      {{render_form(form, novalidate=True, button_map={"submit": "primary"}) }}
+  </header>
+  
+  <main class="mb-4">
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-8 col-md-10 mx-auto">
+          <!--TODO: render your registration form here-->
+          <!-- 在 Flask 或类似的 Python web 框架中，render_form 函数（或类似的助手函数）通常用于渲染 HTML 表单。
+            在你的示例中，render_form(form, novalidate=True, button_map={"submit": "primary"}) 是一个调用该函数的例子，
+            它包含了一些特定的参数和选项。
+  
+            form: 这是要渲染的表单对象，通常是一个 WTForms 表单实例或类似的对象。
+  
+            novalidate = True: 这个选项告诉浏览器不要对表单进行 HTML5 验证。
+            这意味着浏览器不会在用户提交表单前对表单数据进行验证（例如，检查是否填写了必填字段、输入格式是否正确等）。
+  
+            button_map={"submit": "primary"}: 这个参数是用于自定义表单按钮样式的映射。
+            在这里，button_map 是一个字典，它将按钮类型（如 "submit"）映射到特定的样式类（如 "primary")。
+            这通常用于与 CSS 框架（如 Bootstrap）集成，其中不同的样式类会给按钮提供不同的视觉外观。
+            例如，Bootstrap 中的 "primary" 类会给按钮一个特定的颜色和样式。
+  
+            总的来说，button_map 参数允许你指定不同类型的表单按钮应该使用哪种样式类，从而使你能够根据需要自定义表单的外观。
+            在这个例子中，它被用来为提交按钮设置 "primary" 样式。-->
+          {{ render_form(form, novalidate = True, button_map={"submit": "primary"}) }}
+        </div>
       </div>
     </div>
-  </div>
-</main>
-
-{% include "footer.html" %} {% endblock %}
+  </main>
+  
+  {% include "footer.html" %} {% endblock %}
+  

@@ -8,6 +8,8 @@ from flask_sqlalchemy import SQLAlchemy
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.orm import relationship
+
+# Import your forms from the forms.py
 from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm
 
 import os
@@ -35,6 +37,11 @@ app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
 ckeditor = CKEditor(app)
 Bootstrap5(app)
 
+# CONNECT TO DB
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///data.db")
+db = SQLAlchemy()
+db.init_app(app)
+
 # Configure Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -53,68 +60,84 @@ gravatar = Gravatar(app,
                     use_ssl=False,
                     base_url=None)
 
-MAIL_ADDRESS = os.environ.get("EMAIL_KEY")
-MAIL_APP_PW = os.environ.get("PASSWORD_KEY")
+MAIL_ADDRESS = os.environ.get("MAIL_ADDRESS")
+MAIL_APP_PW = os.environ.get("MAIL_APP_PW")
 
-# CONNECT TO DB
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DATABASE_URL", "sqlite:///data.db")
-db = SQLAlchemy()
-db.init_app(app)
+# Create a User table for all your registered users. 
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key = True)
+    email = db.Column(db.String(100), unique = True)
+    password = db.Column(db.String(100))
+    name = db.Column(db.String(100))
 
-# CONFIGURE TABLES
+    ### One to Many relationship: one author, many blog_posts
+
+    # This will act like a List of BlogPost objects attached to each User. 
+    # The "author" refers to the author property in the BlogPost class.
+    posts = relationship("BlogPost", back_populates = "author")
+
+    ### One to Many relationship: one author, many comments
+
+    #*******Add Parent Relationship*******#
+    #"comment_author" refers to the comment_author property in the Comment class.
+    comments = relationship("Comment", back_populates = "comment_author")
+
+# Create a BlogPost table for all blog posts. 
 class BlogPost(db.Model):
     __tablename__ = "blog_posts"
     id = db.Column(db.Integer, primary_key=True)
-    # Create Foreign Key, "users.id" the users refers to the tablename of User.
+
+    # Create Foreign Key, 
+    # "users.id" the users refers to the tablename of User.
     author_id = db.Column(db.Integer, db.ForeignKey("users.id"))
-    # Create reference to the User object. The "posts" refers to the posts property in the User class.
-    author = relationship("User", back_populates="posts")
+
+    ### Many to One relationship: many blog_posts, one author
+
+    # Create reference to the User object, 
+    # the "posts" refers to the posts protperty in the User class.
+    author = relationship("User", back_populates = "posts")
+
     title = db.Column(db.String(250), unique=True, nullable=False)
     subtitle = db.Column(db.String(250), nullable=False)
     date = db.Column(db.String(250), nullable=False)
     body = db.Column(db.Text, nullable=False)
     img_url = db.Column(db.String(250), nullable=False)
-    # Parent relationship to the comments
+
+    #***************Add Parent Relationship*************#
     comments = relationship("Comment", back_populates="parent_post")
 
-
-# Create a User table for all your registered users
-class User(UserMixin, db.Model):
-    __tablename__ = "users"
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(100), unique=True)
-    password = db.Column(db.String(100))
-    name = db.Column(db.String(100))
-    # This will act like a list of BlogPost objects attached to each User.
-    # The "author" refers to the author property in the BlogPost class.
-    posts = relationship("BlogPost", back_populates="author")
-    # Parent relationship: "comment_author" refers to the comment_author property in the Comment class.
-    comments = relationship("Comment", back_populates="comment_author")
-
-
-# Create a table for the comments on the blog posts
+# Create a Comment table. 
 class Comment(db.Model):
     __tablename__ = "comments"
-    id = db.Column(db.Integer, primary_key=True)
-    text = db.Column(db.Text, nullable=False)
-    # Child relationship:"users.id" The users refers to the tablename of the User class.
-    # "comments" refers to the comments property in the User class.
+    id = db.Column(db.Integer, primary_key = True)
+    text = db.Column(db.Text, nullable = False)
+
+    #*************Add Child Relationship***************#
+    #"users.id" The users refers to the tablename of the Users class.
     author_id = db.Column(db.Integer, db.ForeignKey("users.id"))
-    comment_author = relationship("User", back_populates="comments")
-    # Child Relationship to the BlogPosts
+
+    ### Many to One relationship: many comments, one author
+
+    # Create reference to the User object, 
+    # the "comments" refers to the comments protperty in the User class.
+    comment_author = relationship("User", back_populates = "comments")
+
+    #***************Add Child Relationship*************#
     post_id = db.Column(db.Integer, db.ForeignKey("blog_posts.id"))
+
+    ### Many to One relationship: many comments, one blog_post
     parent_post = relationship("BlogPost", back_populates="comments")
 
-# Create an admin-only decorator
-def admin_only(f):
-    @wraps(f)
+# 建立 admin-only 装饰器
+def admin_only(func):
+    @wraps(func)
     def decorated_function(*args, **kwargs):
-        # If id is not 1 then return abort with 403 error
+        # if id is not 1 then return abort with 403
         if current_user.id != 1:
             return abort(403)
         # Otherwise continue with the route function
-        return f(*args, **kwargs)
-
+        return func(*args, **kwargs)
     return decorated_function
 
 # 建立 only_commenter 装饰器
@@ -130,46 +153,63 @@ def only_commenter(function):
 with app.app_context():
     db.create_all()
 
-# Register new users into the User database
-@app.route('/register', methods=["GET", "POST"])
+# Use Werkzeug to hash the user's password when creating a new user.
+@app.route('/register', methods = ["GET", "POST"])
 def register():
+
+    # 建立 Register 表单
     form = RegisterForm()
+
+    # POST 请求
     if form.validate_on_submit():
 
         # Check if user email is already present in the database.
         result = db.session.execute(db.select(User).where(User.email == form.email.data))
         user = result.scalar()
+
         if user:
             # User already exists
             flash("You've already signed up with that email, log in instead!")
             return redirect(url_for('login'))
 
         hash_and_salted_password = generate_password_hash(
-            form.password.data,
+            form.password.data, 
             method='pbkdf2:sha256',
             salt_length=8
         )
+
         new_user = User(
-            email=form.email.data,
-            name=form.name.data,
-            password=hash_and_salted_password,
+            email = form.email.data,
+            name = form.name.data,
+            password = hash_and_salted_password
         )
+
         db.session.add(new_user)
         db.session.commit()
+
         # This line will authenticate the user with Flask-Login
         login_user(new_user)
         return redirect(url_for("get_all_posts"))
-    return render_template("register.html", form=form, current_user=current_user)
 
+    # GET 请求
+    # form 对象 渲染 register.html
+    # 将 register.html 发送给 客户端
+    return render_template("register.html", form = form, current_user = current_user)
 
-@app.route('/login', methods=["GET", "POST"])
+# Retrieve a user from the database based on their email. 
+@app.route('/login', methods = ["GET", "POST"])
 def login():
     form = LoginForm()
+
     if form.validate_on_submit():
-        password = form.password.data
-        result = db.session.execute(db.select(User).where(User.email == form.email.data))
+        email = form.email.data
+        password = form.password.data 
+
+        query = db.select(User).where(User.email == email)
+        result = db.session.execute(query)
         # Note, email in db is unique so will only have one result.
         user = result.scalar()
+
         # Email doesn't exist
         if not user:
             flash("That email does not exist, please try again.")
@@ -179,28 +219,27 @@ def login():
             flash('Password incorrect, please try again.')
             return redirect(url_for('login'))
         else:
+        # 如果用户存在 并且 输入的 password对应 数据库 表 中的 password
             login_user(user)
-            return redirect(url_for('get_all_posts'))
+            return redirect(url_for("get_all_posts"))
 
-    return render_template("login.html", form=form, current_user=current_user)
-
+    return render_template("login.html", form = form, current_user = current_user)
 
 @app.route('/logout')
 def logout():
     logout_user()
     return redirect(url_for('get_all_posts'))
 
-
 @app.route('/')
 def get_all_posts():
     result = db.session.execute(db.select(BlogPost))
     posts = result.scalars().all()
-    return render_template("index.html", all_posts=posts, current_user=current_user)
+    return render_template("index.html", all_posts = posts, current_user = current_user)
 
-
-# Add a POST method to be able to post comments
+# Allow logged-in users to comment on posts
 @app.route("/post/<int:post_id>", methods=["GET", "POST"])
 def show_post(post_id):
+    # 获取当前 的 post实例对象
     requested_post = db.get_or_404(BlogPost, post_id)
     # Add the CommentForm to the route
     comment_form = CommentForm()
@@ -209,58 +248,63 @@ def show_post(post_id):
         if not current_user.is_authenticated:
             flash("You need to login or register to comment.")
             return redirect(url_for("login"))
-
+        
         new_comment = Comment(
-            text=comment_form.comment_text.data,
-            comment_author=current_user,
-            parent_post=requested_post
+            text = comment_form.comment_text.data,
+            comment_author = current_user,
+            parent_post = requested_post
         )
+
         db.session.add(new_comment)
         db.session.commit()
-    return render_template("post.html", post=requested_post, current_user=current_user, form=comment_form)
 
+    return render_template("post.html", post = requested_post, current_user = current_user, form = comment_form)
 
-# Use a decorator so only an admin user can create new posts
+# Use a decorator so only an admin user can create a new post
 @app.route("/new-post", methods=["GET", "POST"])
 @admin_only
 def add_new_post():
     form = CreatePostForm()
     if form.validate_on_submit():
         new_post = BlogPost(
+            author = current_user,
             title=form.title.data,
             subtitle=form.subtitle.data,
             body=form.body.data,
             img_url=form.img_url.data,
-            author=current_user,
             date=date.today().strftime("%B %d, %Y")
         )
         db.session.add(new_post)
         db.session.commit()
         return redirect(url_for("get_all_posts"))
-    return render_template("make-post.html", form=form, current_user=current_user)
-
+    return render_template("make-post.html", form = form, current_user = current_user)
 
 # Use a decorator so only an admin user can edit a post
 @app.route("/edit-post/<int:post_id>", methods=["GET", "POST"])
+@admin_only
 def edit_post(post_id):
     post = db.get_or_404(BlogPost, post_id)
+
     edit_form = CreatePostForm(
-        title=post.title,
-        subtitle=post.subtitle,
-        img_url=post.img_url,
-        author=post.author,
-        body=post.body
+        title = post.title,
+        subtitle = post.subtitle,
+        img_url = post.img_url,
+        body = post.body
     )
+
+    # 更新 当前 post 实例 对象 中的属性
     if edit_form.validate_on_submit():
+        post.author = current_user      
         post.title = edit_form.title.data
         post.subtitle = edit_form.subtitle.data
         post.img_url = edit_form.img_url.data
-        post.author = current_user
         post.body = edit_form.body.data
-        db.session.commit()
-        return redirect(url_for("show_post", post_id=post.id))
-    return render_template("make-post.html", form=edit_form, is_edit=True, current_user=current_user)
 
+        db.session.commit()
+
+        return redirect(url_for("show_post", post_id = post.id))
+    
+    return render_template("make-post.html", form = edit_form, is_edit = True, current_user = current_user)
 
 # Use a decorator so only an admin user can delete a post
 @app.route("/delete/<int:post_id>")
@@ -295,8 +339,8 @@ def about():
 def contact():
 
     def send_email(name, email, phone, message):
-        email_message = f"Subject:New Message\n\nName: {name}\nEmail: {email}\nPhone: {phone}\nMessage:{message}"
-        with smtplib.SMTP("smtp.qq.com") as connection:
+        email_message = f"From: {MAIL_ADDRESS}\nTo: {email}\nSubject: New Message\n\nName: {name}\nEmail: {email}\nPhone: {phone}\nMessage: {message}"
+        with smtplib.SMTP("smtp.qq.com", 587) as connection:  # Port 587 for TLS
             connection.starttls()
             connection.login(MAIL_ADDRESS, MAIL_APP_PW)
             connection.sendmail(MAIL_ADDRESS, email, email_message)
